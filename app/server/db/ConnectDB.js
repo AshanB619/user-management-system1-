@@ -1,39 +1,40 @@
-//importing the mysql2/promise for using async await in conenction function and in querys
 const mysql = require("mysql2/promise");
 
-//the async await function which connects to the database using the credentials in the .env files
+let pool = null;
+
 const ConnectDB = async () => {
-  const pool = await mysql.createPool({
-    host: process.env.DB_HOST,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_DATABASE,
-    waitForConnections: process.env.DB_WAITFORCONNECTIONS,
-    connectionLimit: process.env.DB_CONNECTIONLIMIT,
-    queueLimit: process.env.DB_QUEUELIMIT
-  });
+  const maxRetries = 5;
+  let attempt = 0;
 
-  // async await query which creates the database if it doesn't exist
-  await pool.query(
-    `CREATE DATABASE IF NOT EXISTS \`${process.env.DB_DATABASE}\``
-  );
-  console.log(`Database ${process.env.DB_DATABASE} created or already exists.`);
+  while (attempt < maxRetries) {
+    try {
+      if (!pool) {
+        pool = await mysql.createPool({
+          host: process.env.DB_HOST,
+          user: process.env.DB_USER,
+          password: process.env.DB_PASSWORD,
+          database: process.env.DB_DATABASE,
+          waitForConnections: Boolean(process.env.DB_WAITFORCONNECTIONS),
+          connectionLimit: Number(process.env.DB_CONNECTIONLIMIT),
+          queueLimit: Number(process.env.DB_QUEUELIMIT),
+        });
 
-  // async await query which changes to the pool's database to the newly created database
-  await pool.query(`USE \`${process.env.DB_DATABASE}\``);
-  console.log(`Switched to database ${process.env.DB_DATABASE}`);
+        console.log("✅ MySQL Database connected successfully.");
+        break; // Exit the retry loop
+      }
+    } catch (error) {
+      console.error(`❌ Database connection failed (Attempt ${attempt + 1} of ${maxRetries}):`, error);
+      attempt++;
+      await new Promise((resolve) => setTimeout(resolve, 5000)); // Wait 5 seconds before retrying
+    }
+  }
 
-  // async await query which creates the 'users' table if it doesn't exist and creates table for id, name, email
-  await pool.query(`CREATE TABLE IF NOT EXISTS \`${process.env.DB_TABLENAME}\` (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(50) NOT NULL,
-        email VARCHAR(100) NOT NULL UNIQUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`);
-  console.log(`${process.env.DB_TABLENAME} table created or already exists.`);
-  // returning pool to further add querys in the database we did till now
+  if (!pool) {
+    console.error("❌ Failed to connect to MySQL after multiple attempts.");
+    process.exit(1);
+  }
+
   return pool;
 };
 
-//exporting the function
 module.exports = ConnectDB;
